@@ -1,5 +1,6 @@
 #include "serial_main.h"
 
+#include <cstring>
 SerialMain::SerialMain(std::string device_path) : device_path_(device_path)
 {
 	if (!(CommInit()))
@@ -8,16 +9,17 @@ SerialMain::SerialMain(std::string device_path) : device_path_(device_path)
 	};
 }
 
-void SerialMain::SenderMain(const std::vector<double> &vdata)
+void SerialMain::SenderMain(const io::RobotCtrlData & command)
 {
-	robot_ctrl.pitch = vdata[0];
-	robot_ctrl.yaw = vdata[1];
-	robot_ctrl.fire_command = vdata[2];
-	robot_ctrl.target_lock = vdata[3];
-	uint16_t send_length = SenderPackSolve((uint8_t *)&robot_ctrl, sizeof(robot_ctrl_info_t),
-										   CHASSIS_CTRL_CMD_ID, send_buff_.get());
-	device_ptr_->Write(send_buff_.get(), send_length);
-	std::cout<<"robot"<<robot_ctrl.yaw<<"11"<<std::endl;
+        robot_ctrl_ = command;
+
+        const uint16_t send_length = SenderPackSolve(
+          reinterpret_cast<uint8_t *>(&robot_ctrl_),
+        sizeof(io::RobotCtrlData),
+        io::CHASSIS_CTRL_CMD_ID,
+      send_buff_.get());
+
+    device_ptr_->Write(send_buff_.get(), send_length);
 }
 
 bool SerialMain::CommInit()
@@ -33,8 +35,8 @@ bool SerialMain::CommInit()
 	recv_buff_ = std::unique_ptr<uint8_t[]>(new uint8_t[BUFF_LENGTH]);
 	send_buff_ = std::unique_ptr<uint8_t[]>(new uint8_t[BUFF_LENGTH]);
 	
-	memset(&frame_receive_header_, 0, sizeof(frame_header_struct_t));
-	memset(&frame_send_header_, 0, sizeof(frame_header_struct_t));
+	std::memset(&frame_receive_header_, 0, sizeof(io::FrameHeader));
+	std::memset(&frame_send_header_, 0, sizeof(io::FrameHeader));
 	
 	return true;
 }
@@ -51,11 +53,11 @@ bool SerialMain::ReceiverMain()
 	{
 		// uint16_t read_length = device_ptr_->Read(recv_buff_.get(),BUFF_LENGTH);
 		
-		last_len = device_ptr_->ReadUntil2(recv_buff_.get(), END1_SOF, END2_SOF, 128);
+		last_len = device_ptr_->ReadUntil2(recv_buff_.get(), io::END1_SOF, io::END2_SOF, 128);
 		
 		while (flag == 0 && last_len == 1)
 		{
-			if ((recv_buff_[a] == END1_SOF) && (recv_buff_[a + 1] == END2_SOF))
+			if ((recv_buff_[a] == io::END1_SOF) && (recv_buff_[a + 1] == io::END2_SOF))
 			{
 				flag = 1;
 				SearchFrameSOF(recv_buff_.get(), a);
@@ -79,7 +81,7 @@ void SerialMain::SearchFrameSOF(uint8_t *frame, uint16_t total_len)
 //	std::cout<<total_len<<std::endl;
 	for (i = 0; i < total_len;)
 	{
-		if (*frame == HEADER_SOF)
+		if (*frame == io::HEADER_SOF)
 		{
 			ReceiveDataSolve(frame);
 			i = total_len;
@@ -92,73 +94,103 @@ void SerialMain::SearchFrameSOF(uint8_t *frame, uint16_t total_len)
 	}
 }
 
-uint16_t SerialMain::ReceiveDataSolve(uint8_t *frame)
+uint16_t SerialMain::ReceiveDataSolve(uint8_t * frame)
 {
-	uint8_t index = 0;
-	uint16_t cmd_id = 0;
-	
-	if (*frame != HEADER_SOF)
-	{
-		return 0;
-	}
-	
-	memcpy(&frame_receive_header_, frame, sizeof(frame_header_struct_t));
-	index += sizeof(frame_header_struct_t);
-	
-	if ((!Verify_CRC8_Check_Sum(frame, sizeof(frame_header_struct_t))) || (!Verify_CRC16_Check_Sum(frame, frame_receive_header_.data_length + 9)))
-	{
-		std::cout<<"CRC error!!"<<std::endl;
-		return 0;
-	}
-	else
-	{
-		memcpy(&cmd_id, frame + index, sizeof(uint16_t));
-		index += sizeof(uint16_t);
-		// printf("id:%x\n", cmd_id);
-		switch (cmd_id)
-		{
-			case VISION_ID:
-			{
-				memcpy(&vision_msg_, frame + index, sizeof(vision_t));
-                //---------------------serial_main  data------------
-//                std::cout<<"-----serial_main  data------"<<std::endl;
-//				std::cout<<"mode:"<<vision_msg_.mode<<std::endl;
-//				std::cout<<"yaw:"<<vision_msg_.yaw<<std::endl;
-//				std::cout<<"pitch:"<<vision_msg_.pitch<<std::endl;
-//				std::cout<<"quat0:"<<vision_msg_.quaternion[0]<<std::endl;
-//				std::cout<<"quat1:"<<vision_msg_.quaternion[1]<<std::endl;
-//				std::cout<<"quat2:"<<vision_msg_.quaternion[2]<<std::endl;
-//				std::cout<<"quat3:"<<vision_msg_.quaternion[3]<<std::endl;
-			}
-				break;
-			default:
-				break;
-		}
-		index += frame_receive_header_.data_length + 2;
-		return index;
-	}
-}
+  uint16_t index = 0;
+  uint16_t cmd_id = 0;
 
+  // 1. 检查帧头起始字节
+  if (*frame != io::HEADER_SOF) {
+    return 0;
+  }
+
+  // 2. 读取5字节帧头
+  std::memcpy(
+    &frame_receive_header_,
+    frame,
+    sizeof(io::FrameHeader));
+
+  index += sizeof(io::FrameHeader);
+
+  // 3. 检查帧头CRC8和整帧CRC16
+  if (
+    !Verify_CRC8_Check_Sum(frame, sizeof(io::FrameHeader)) ||
+    !Verify_CRC16_Check_Sum(
+      frame,
+      frame_receive_header_.data_length + 9))
+  {
+    std::cout << "CRC error!!" << std::endl;
+    return 0;
+  }
+
+  // 4. 读取2字节cmd_id
+  std::memcpy(
+    &cmd_id,
+    frame + index,
+    sizeof(uint16_t));
+
+  index += sizeof(uint16_t);
+
+  // 5. 根据cmd_id判断数据类型
+  switch (cmd_id) {
+    case io::VISION_ID:
+    {
+      // 新版VisionData必须是47字节
+      if (frame_receive_header_.data_length != sizeof(io::VisionData)) {
+        std::cerr
+          << "Unexpected VisionData length: "
+          << frame_receive_header_.data_length
+          << ", expected: "
+          << sizeof(io::VisionData)
+          << std::endl;
+
+        return 0;
+      }
+
+      // 把47字节载荷复制到VisionData结构体
+      std::memcpy(
+        &vision_msg_,
+        frame + index,
+        sizeof(io::VisionData));
+
+      break;
+    }
+
+    default:
+      std::cerr
+        << "Unknown cmd_id: 0x"
+        << std::hex
+        << cmd_id
+        << std::dec
+        << std::endl;
+      break;
+  }
+
+  // 帧头5 + cmd_id 2 + payload + CRC16 2
+  index += frame_receive_header_.data_length + 2;
+
+  return index;
+}
 uint16_t SerialMain::SenderPackSolve(uint8_t *data, uint16_t data_length,
 									 uint16_t cmd_id, uint8_t *send_buf)
 {
 	
 	uint8_t index = 0;
-	frame_send_header_.SOF = HEADER_SOF;
+	frame_send_header_.sof = io::HEADER_SOF;
 	frame_send_header_.data_length = data_length;
 	frame_send_header_.seq++;
 	
-	Append_CRC8_Check_Sum((uint8_t *)&frame_send_header_, sizeof(frame_header_struct_t));
+	Append_CRC8_Check_Sum((uint8_t *)&frame_send_header_, sizeof(io::FrameHeader));
 	
-	memcpy(send_buf, &frame_send_header_, sizeof(frame_header_struct_t));//assign frame header
+	std::memcpy(send_buf, &frame_send_header_, sizeof(io::FrameHeader));//assign frame header
 	
-	index += sizeof(frame_header_struct_t);
+	index += sizeof(io::FrameHeader);
 	
-	memcpy(send_buf + index, &cmd_id, sizeof(uint16_t));//assign cmd
+	std::memcpy(send_buf + index, &cmd_id, sizeof(uint16_t));//assign cmd
 	
 	index += sizeof(uint16_t);
 	
-	memcpy(send_buf + index, data, data_length);//assign data
+	std::memcpy(send_buf + index, data, data_length);//assign data
 	
 	Append_CRC16_Check_Sum(send_buf, data_length + 9);
 	
