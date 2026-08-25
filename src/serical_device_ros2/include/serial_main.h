@@ -20,9 +20,9 @@ public:
 	
 	bool ReceiverMain();                                        // 读取数据
 	
-	void SearchFrameSOF(uint8_t *frame, uint16_t total_len);
+        uint16_t ReadFrame();
 	
-	uint16_t ReceiveDataSolve(uint8_t *frame);
+        bool ParseFrame(uint16_t frame_length);
 	
 	uint16_t SenderPackSolve(uint8_t *data, uint16_t data_length,
 							 uint16_t cmd_id, uint8_t *send_buf);
