@@ -1,8 +1,12 @@
 std_msgs/Header header
 uint16 id
 uint16 mode
-float32 pitch
 float32 yaw
+float32 yaw_vel
+float32 pitch
+float32 pitch_vel
 float32 roll
-float32[] quaternion
-float32 shoot
+float32[4] quaternion
+float32 shoot_speed
+uint16 bullet_count
+uint8 game_progress
