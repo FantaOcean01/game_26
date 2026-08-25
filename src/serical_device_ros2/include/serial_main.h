@@ -1,52 +1,70 @@
-#ifndef ROBOMASTER_ROBOT_H
-#define ROBOMASTER_ROBOT_H
+#ifndef SERICAL_DEVICE_ROS2__SERIAL_MAIN_H_
+#define SERICAL_DEVICE_ROS2__SERIAL_MAIN_H_
 
-#include <iostream>
-#include <thread>
-#include <vector>
-#include "serial_device.h"
-#include "protocol.h"
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <string>
+
 #include "crc.h"
-#include <memory> 
-class SerialMain {
+#include "protocol_new.hpp"
+#include "serial_device.h"
+
+class SerialMain
+{
 public:
-	SerialMain(std::string device_path = "/dev/robomaster");
-	
-	~SerialMain() = default;
-	
-	void SenderMain(const std::vector<double> &vdata);          // 发送数据
-	
-	bool CommInit();
-	
-	bool ReceiverMain();                                        // 读取数据
-	
-	void SearchFrameSOF(uint8_t *frame, uint16_t total_len);
-	
-	uint16_t ReceiveDataSolve(uint8_t *frame);
-	
-	uint16_t SenderPackSolve(uint8_t *data, uint16_t data_length,
-							 uint16_t cmd_id, uint8_t *send_buf);
-	vision_t vision_msg_;
+  explicit SerialMain(
+    const std::string & device_path = "/dev/robomaster");
+
+  ~SerialMain() = default;
+
+  // 电控串口帧 -> VisionData
+  bool ReceiveVision();
+
+  // RobotCtrlData -> 串口控制帧
+  bool SendControl(const io::RobotCtrlData & control);
+
+  bool Ready() const noexcept
+  {
+    return ready_;
+  }
+
+  const io::VisionData & VisionData() const noexcept
+  {
+    return vision_data_;
+  }
 
 private:
-	
-	//! Device Information and Buffer Allocation
-	std::string device_path_;
-	std::shared_ptr<SerialDevice> device_ptr_;
-	std::unique_ptr<uint8_t[]> recv_buff_;
-	std::unique_ptr<uint8_t[]> send_buff_;
-	const unsigned int BUFF_LENGTH = 512;
-	
-	//! Frame Information
-	frame_header_struct_t frame_receive_header_;
-	frame_header_struct_t frame_send_header_;
-	
-	/** @brief specific protocol data are defined here
-	 *         xxxx_info_t is defined in protocol.h
-	 */
-	
-	robot_ctrl_info_t robot_ctrl;
-};
-//}
+  static constexpr std::size_t BUFFER_SIZE = 512;
 
-#endif // ROBOMASTER_ROBOT_H
+  bool Initialize();
+
+  // 确保读取到指定数量的字节
+  bool ReadExact(uint8_t * destination, std::size_t length);
+
+  // 从连续串口流中读取一整帧
+  bool ReadFrame(std::size_t & frame_length);
+
+  // 校验并解析VisionData
+  bool DecodeVisionFrame(std::size_t frame_length);
+
+  // 将RobotCtrlData打包到send_buffer_
+  std::size_t PackControlFrame(
+    const io::RobotCtrlData & control);
+
+  std::string device_path_;
+  std::unique_ptr<SerialDevice> device_;
+
+  std::array<uint8_t, BUFFER_SIZE> receive_buffer_{};
+  std::array<uint8_t, BUFFER_SIZE> send_buffer_{};
+
+  io::FrameHeader receive_header_{};
+  io::FrameHeader send_header_{};
+
+  io::VisionData vision_data_{};
+
+  bool ready_ = false;
+};
+
+#endif  // SERICAL_DEVICE_ROS2__SERIAL_MAIN_H_
