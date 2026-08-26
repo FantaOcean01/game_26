@@ -232,7 +232,7 @@ int SerialDevice::ReadUntil2(uint8_t *buf, uint8_t end1, uint8_t end2, uint8_t m
 		}
 		
 	}
-	
+	return 0;
 }
 
 // 发送数据函数

@@ -23,7 +23,7 @@
 #include <termios.h>
 #include <fcntl.h>
 #include <unistd.h>
-
+#include <cstdint>
 //namespace robomaster {
 /**
  * @brief serial device class inherited from hardware interface
