@@ -56,4 +56,22 @@ install(DIRECTORY include/
 #########################################
 # ✅ 打包
 #########################################
+if(BUILD_TESTING)
+  enable_testing()
+
+  add_executable(control_frame_pty_test
+    tests/control_frame_pty_test.cpp
+  )
+
+  target_link_libraries(control_frame_pty_test
+    ${PROJECT_NAME}
+    util
+  )
+
+  add_test(
+    NAME control_frame_pty_test
+    COMMAND control_frame_pty_test
+  )
+endif()
+
 ament_auto_package()

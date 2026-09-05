@@ -272,15 +272,6 @@ std::size_t SerialMain::PackControlFrame(
 
   index += sizeof(uint16_t);
 
-  const io::MsgEndInfo end_info{};
-
-  std::memcpy(
-    send_buffer_.data() + index,
-    &end_info,
-    sizeof(io::MsgEndInfo));
-
-  index += sizeof(io::MsgEndInfo);
-
   return index;
 }
 
